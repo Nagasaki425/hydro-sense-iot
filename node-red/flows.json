@@ -1,0 +1,437 @@
+[
+  {
+    "id": "tab_hydro",
+    "type": "tab",
+    "label": "hydro-sense",
+    "disabled": false,
+    "info": "Fluxo do hydro-sense-iot: MQTT -> validação -> InfluxDB + previsão (OpenWeather) + alerta (Telegram). Página /regiao para escolher a região."
+  },
+  {
+    "id": "tls_emqx",
+    "type": "tls-config",
+    "name": "tls-emqx",
+    "cert": "",
+    "key": "",
+    "ca": "",
+    "certname": "",
+    "keyname": "",
+    "caname": "",
+    "servername": "",
+    "verifyservercert": true,
+    "alpnprotocol": ""
+  },
+  {
+    "id": "broker_emqx",
+    "type": "mqtt-broker",
+    "name": "EMQX Cloud",
+    "broker": "SEU-ADDRESS.emqxsl.com",
+    "port": "8883",
+    "tls": "tls_emqx",
+    "clientid": "",
+    "autoConnect": true,
+    "usetls": true,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthPayload": "",
+    "birthMsg": {},
+    "closeTopic": "",
+    "closeQos": "0",
+    "closePayload": "",
+    "closeMsg": {},
+    "willTopic": "",
+    "willQos": "0",
+    "willPayload": "",
+    "willMsg": {},
+    "userProps": "",
+    "sessionExpiry": ""
+  },
+  {
+    "id": "influx_cfg",
+    "type": "influxdb",
+    "hostname": "127.0.0.1",
+    "port": "8086",
+    "protocol": "http",
+    "database": "database",
+    "name": "InfluxDB Cloud",
+    "usetls": true,
+    "tls": "",
+    "influxdbVersion": "2.0",
+    "url": "https://SUA-URL-DA-REGIAO.influxdata.com",
+    "timeout": "10",
+    "rejectUnauthorized": true
+  },
+  {
+    "id": "cmt1",
+    "type": "comment",
+    "z": "tab_hydro",
+    "name": "CONFIGURAR: broker (host/usuário/senha), InfluxDB (URL/org/token) e regiões",
+    "info": "1) Duplo clique no nó mqtt in > editar o servidor: host, usuário e senha do EMQX.\n2) Duplo clique no nó influxdb out > editar o servidor: URL e token; e preencha a organização.\n3) Edite as regiões no nó 'Definir regiões'.\n4) Chaves de API: variáveis de ambiente OPENWEATHER_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID.",
+    "x": 330,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "inj_reg",
+    "type": "inject",
+    "z": "tab_hydro",
+    "name": "ao iniciar",
+    "props": [],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "0.2",
+    "topic": "",
+    "x": 110,
+    "y": 100,
+    "wires": [
+      [
+        "fn_reg"
+      ]
+    ]
+  },
+  {
+    "id": "fn_reg",
+    "type": "function",
+    "z": "tab_hydro",
+    "name": "Definir regiões",
+    "func": "// EDITE AQUI: regiões da sua área e coordenadas aproximadas (usadas só na previsão de chuva).\n// Nomes: apenas letras, números, \"-\" e \"_\".\nflow.set(\"regioes\", {\n  \"talhao-1\": { lat: -23.5500, lon: -46.6300 },\n  \"talhao-2\": { lat: -23.5600, lon: -46.6400 }\n});\nreturn null;",
+    "outputs": 0,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 300,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "mqtt_in",
+    "type": "mqtt in",
+    "z": "tab_hydro",
+    "name": "umidade",
+    "topic": "robo/jackal/solo/umidade",
+    "qos": "1",
+    "datatype": "json",
+    "broker": "broker_emqx",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 100,
+    "y": 200,
+    "wires": [
+      [
+        "fn_validar"
+      ]
+    ]
+  },
+  {
+    "id": "fn_validar",
+    "type": "function",
+    "z": "tab_hydro",
+    "name": "Validar e enriquecer",
+    "func": "const REGIOES = flow.get(\"regioes\") || {};\nconst d = msg.payload;\nif (typeof d !== \"object\" || d === null) return null;\n\nconst u = Number(d.umidade_pct);\nif (!isFinite(u) || u < 0 || u > 100) { node.warn(\"umidade inválida\"); return null; }\n\nconst reg = REGIOES[d.regiao];\nif (!reg) { node.warn(\"região desconhecida: \" + d.regiao); return null; }\n\nmsg.leitura = {\n  ponto_id: d.ponto_id, regiao: d.regiao,\n  umidade_pct: u, valor_bruto: d.valor_bruto,\n  lat: reg.lat, lon: reg.lon\n};\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 320,
+    "y": 200,
+    "wires": [
+      [
+        "fn_influx",
+        "fn_prev"
+      ]
+    ]
+  },
+  {
+    "id": "fn_influx",
+    "type": "function",
+    "z": "tab_hydro",
+    "name": "Preparar Influx",
+    "func": "const l = msg.leitura;\nmsg.measurement = \"umidade_solo\";\nmsg.payload = [\n  { umidade_pct: l.umidade_pct, valor_bruto: l.valor_bruto },  // fields\n  { regiao: l.regiao, ponto_id: l.ponto_id }                   // tags\n];\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 570,
+    "y": 160,
+    "wires": [
+      [
+        "influx_out"
+      ]
+    ]
+  },
+  {
+    "id": "influx_out",
+    "type": "influxdb out",
+    "z": "tab_hydro",
+    "influxdb": "influx_cfg",
+    "name": "InfluxDB hydro_sense",
+    "measurement": "",
+    "precision": "",
+    "retentionPolicy": "",
+    "database": "database",
+    "precisionV18FluxV20": "ms",
+    "retentionPolicyV18Flux": "",
+    "org": "SUA-ORG",
+    "bucket": "hydro_sense",
+    "x": 850,
+    "y": 160,
+    "wires": []
+  },
+  {
+    "id": "fn_prev",
+    "type": "function",
+    "z": "tab_hydro",
+    "name": "Previsão (com cache)",
+    "func": "const l = msg.leitura;\nconst TTL = 30 * 60 * 1000;               // cache de 30 min por região\nconst cache = flow.get(\"chuva_\" + l.regiao);\nif (cache && Date.now() - cache.t < TTL) {\n  msg.chuva = cache;\n  return [null, msg];                      // saída 2: pula a chamada HTTP\n}\nmsg.url = \"https://api.openweathermap.org/data/2.5/forecast\"\n        + \"?lat=\" + l.lat + \"&lon=\" + l.lon\n        + \"&units=metric&cnt=8&appid=\" + env.get(\"OPENWEATHER_KEY\");\nreturn [msg, null];                        // saída 1: consulta a API",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 570,
+    "y": 260,
+    "wires": [
+      [
+        "http_weather"
+      ],
+      [
+        "fn_decid"
+      ]
+    ]
+  },
+  {
+    "id": "http_weather",
+    "type": "http request",
+    "z": "tab_hydro",
+    "name": "OpenWeather forecast",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 830,
+    "y": 240,
+    "wires": [
+      [
+        "fn_proc"
+      ]
+    ]
+  },
+  {
+    "id": "fn_proc",
+    "type": "function",
+    "z": "tab_hydro",
+    "name": "Processar previsão",
+    "func": "const l = msg.leitura;\nconst ok = msg.statusCode === 200 && msg.payload && Array.isArray(msg.payload.list);\nif (!ok) {\n  node.warn(\"OpenWeather falhou: HTTP \" + msg.statusCode);\n  // cache de falha: tenta de novo em ~1 min (evita chamar a API a cada leitura)\n  const falha = { t: Date.now() - 29 * 60 * 1000, mm: 0, pop: 0, indisponivel: true };\n  flow.set(\"chuva_\" + l.regiao, falha);\n  msg.chuva = falha;\n  return [msg, null];\n}\nconst lista = msg.payload.list;\nconst mm  = lista.reduce((s, p) => s + ((p.rain && p.rain[\"3h\"]) || 0), 0);\nconst pop = Math.max(0, ...lista.map(p => p.pop || 0));\nconst chuva = { t: Date.now(), mm: mm, pop: pop };\nflow.set(\"chuva_\" + l.regiao, chuva);\nmsg.chuva = chuva;\n\n// saída 2: grava a previsão no Influx (Dashboard 2)\nconst f = {\n  measurement: \"previsao_chuva\",\n  payload: [{ mm_24h: mm, prob_max: pop }, { regiao: l.regiao }]\n};\nreturn [msg, f];",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1060,
+    "y": 240,
+    "wires": [
+      [
+        "fn_decid"
+      ],
+      [
+        "influx_out"
+      ]
+    ]
+  },
+  {
+    "id": "fn_decid",
+    "type": "function",
+    "z": "tab_hydro",
+    "name": "Decidir alerta",
+    "func": "const l = msg.leitura, c = msg.chuva;\nconst LIMIAR = 30;                  // % de umidade (ajuste por cultura/solo)\nconst CHUVA_MM = 2;                 // mm previstos em 24 h = \"chuva relevante\"\nconst COOLDOWN = 60 * 60 * 1000;    // no máx. 1 alerta por hora por ponto\n\nif (l.umidade_pct >= LIMIAR) return null;\nif (c.mm >= CHUVA_MM) return null;\n\nconst key = \"alerta_\" + l.regiao + \"_\" + l.ponto_id;\nif (Date.now() - (flow.get(key) || 0) < COOLDOWN) return null;\nflow.set(key, Date.now());\n\nconst chuvaTxt = c.indisponivel ? \"previsão indisponível\" : c.mm.toFixed(1) + \" mm\";\nmsg.url = \"https://api.telegram.org/bot\" + env.get(\"TELEGRAM_TOKEN\") + \"/sendMessage\";\nmsg.headers = { \"content-type\": \"application/json\" };\nmsg.payload = {\n  chat_id: env.get(\"TELEGRAM_CHAT_ID\"),\n  text: \"⚠️ Solo seco\\nRegião: \" + l.regiao + \" | Ponto: \" + l.ponto_id +\n        \"\\nUmidade: \" + l.umidade_pct.toFixed(1) + \"%\" +\n        \"\\nChuva prevista (24 h): \" + chuvaTxt + \"\\nSugestão: irrigar.\"\n};\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1060,
+    "y": 320,
+    "wires": [
+      [
+        "http_tg"
+      ]
+    ]
+  },
+  {
+    "id": "http_tg",
+    "type": "http request",
+    "z": "tab_hydro",
+    "name": "Telegram sendMessage",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 1290,
+    "y": 320,
+    "wires": [
+      [
+        "dbg_tg"
+      ]
+    ]
+  },
+  {
+    "id": "dbg_tg",
+    "type": "debug",
+    "z": "tab_hydro",
+    "name": "resposta Telegram",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 1520,
+    "y": 320,
+    "wires": []
+  },
+  {
+    "id": "cmt2",
+    "type": "comment",
+    "z": "tab_hydro",
+    "name": "Escolha da região: abra http://localhost:1880/regiao",
+    "info": "Página simples com dropdown. Ao aplicar, publica a região (retida) em robo/jackal/solo/regiao. Proteja o Node-RED (httpNodeAuth) se for exposto na rede.",
+    "x": 250,
+    "y": 400,
+    "wires": []
+  },
+  {
+    "id": "http_get",
+    "type": "http in",
+    "z": "tab_hydro",
+    "name": "",
+    "url": "/regiao",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 110,
+    "y": 460,
+    "wires": [
+      [
+        "fn_pagina"
+      ]
+    ]
+  },
+  {
+    "id": "fn_pagina",
+    "type": "function",
+    "z": "tab_hydro",
+    "name": "Montar página",
+    "func": "const regs = flow.get(\"regioes\") || {};\nconst atual = flow.get(\"regiao_atual\") || \"(nenhuma escolhida desde o último deploy)\";\nconst opts = Object.keys(regs).map(k =>\n  `<option value=\"${k}\"${k === atual ? \" selected\" : \"\"}>${k}</option>`).join(\"\");\nmsg.statusCode = 200;\nmsg.headers = { \"content-type\": \"text/html; charset=utf-8\" };\nmsg.payload = `<!doctype html><html lang=\"pt-br\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>hydro-sense</title></head>\n<body style=\"font-family:sans-serif;max-width:420px;margin:2rem auto;padding:0 1rem\">\n<h2>Região de monitoramento</h2>\n<p>Região atual: <b>${atual}</b></p>\n<form method=\"POST\" action=\"/regiao\">\n<select name=\"regiao\" style=\"font-size:1rem;padding:.5rem;width:100%\">${opts}</select>\n<button style=\"margin-top:1rem;font-size:1rem;padding:.6rem 1rem\">Aplicar</button>\n</form></body></html>`;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 330,
+    "y": 460,
+    "wires": [
+      [
+        "http_resp"
+      ]
+    ]
+  },
+  {
+    "id": "http_resp",
+    "type": "http response",
+    "z": "tab_hydro",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 820,
+    "y": 500,
+    "wires": []
+  },
+  {
+    "id": "http_post",
+    "type": "http in",
+    "z": "tab_hydro",
+    "name": "",
+    "url": "/regiao",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 110,
+    "y": 540,
+    "wires": [
+      [
+        "fn_post"
+      ]
+    ]
+  },
+  {
+    "id": "fn_post",
+    "type": "function",
+    "z": "tab_hydro",
+    "name": "Aplicar região",
+    "func": "const regs = flow.get(\"regioes\") || {};\nconst regiao = msg.payload && msg.payload.regiao;\nif (!regiao || !regs[regiao]) {\n  msg.statusCode = 400;\n  msg.headers = { \"content-type\": \"text/plain; charset=utf-8\" };\n  msg.payload = \"Região inválida\";\n  return [null, msg];\n}\nflow.set(\"regiao_atual\", regiao);\nconst mqttMsg = { topic: \"robo/jackal/solo/regiao\", payload: regiao, qos: 1, retain: true };\nmsg.statusCode = 303;\nmsg.headers = { location: \"/regiao\" };\nmsg.payload = \"\";\nreturn [mqttMsg, msg];",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 330,
+    "y": 540,
+    "wires": [
+      [
+        "mqtt_out"
+      ],
+      [
+        "http_resp"
+      ]
+    ]
+  },
+  {
+    "id": "mqtt_out",
+    "type": "mqtt out",
+    "z": "tab_hydro",
+    "name": "regiao (retido)",
+    "topic": "robo/jackal/solo/regiao",
+    "qos": "1",
+    "retain": "true",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "broker_emqx",
+    "x": 600,
+    "y": 540,
+    "wires": []
+  }
+]

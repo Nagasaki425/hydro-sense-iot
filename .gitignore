@@ -1,0 +1,8 @@
+# Credenciais
+secrets.h
+
+# IDEs / sistema
+.vscode/
+.pio/
+*.bak
+.DS_Store

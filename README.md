@@ -13,6 +13,10 @@ Monitoramento da umidade do solo com IoT para apoiar decisões de irrigação e 
 
 Um único sensor de umidade do solo, transportado por um robô móvel (Clearpath Jackal, ROS2), percorre a área e amostra vários pontos, em vez de exigir um sensor fixo por ponto. As leituras são enviadas por MQTT para um fluxo de regras que cruza a umidade com a previsão de chuva, dispara alertas e alimenta dashboards. Nesta versão o sistema **apoia a decisão** de irrigar; não há atuador.
 
+### 🌱 ODS e Sustentabilidade
+
+O projeto contribui para a ODS 6 – Água Potável e Saneamento, ao promover o uso mais eficiente da água na agricultura. Por meio do monitoramento da umidade do solo e da análise da previsão de chuva, o protótipo auxilia na tomada de decisões sobre irrigação, evitando o uso desnecessário de água. Nesta versão, o sistema oferece apoio à decisão, sem realizar o acionamento automático da irrigação.
+
 ### 🔄 Arquitetura
 
 ```
@@ -101,6 +105,10 @@ Soil moisture monitoring with IoT to support irrigation decisions and cut water 
 ### 📋 About
 
 A single soil moisture sensor carried by a mobile robot (Clearpath Jackal, ROS2) sweeps the field and samples multiple points, instead of requiring one fixed sensor per point. Readings are sent over MQTT to a rules flow that combines moisture with the rain forecast, triggers alerts and feeds dashboards. This version provides **decision support** only; there is no actuator.
+
+### 🌱 SDGs and Sustainability
+
+The project contributes to SDG 6 – Clean Water and Sanitation by promoting more efficient water use in agriculture. By monitoring soil moisture and analyzing rainfall forecasts, the prototype supports irrigation decisions and helps prevent unnecessary water consumption. In this version, the system provides decision support without automatically controlling irrigation.
 
 ### 🔄 Architecture
 
